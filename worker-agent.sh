@@ -49,11 +49,17 @@ IN_PROGRESS_DIR="$REPO_ROOT/.tasks/in_progress"
 DONE_DIR="$REPO_ROOT/.tasks/done"
 LOCKS_DIR="$REPO_ROOT/.agent-locks"
 LOGS_DIR="$REPO_ROOT/.agent-logs"
+WORKTREES_DIR="$REPO_ROOT/.worktrees"
+
+# Bazowa gałąź, od której każde nowe zadanie tworzy świeży branch.
+# Domyślnie bieżąca gałąź głównego repo w momencie startu workera.
+BASE_BRANCH="${BASE_BRANCH:-$(cd "$REPO_ROOT" && git symbolic-ref --short HEAD 2>/dev/null || echo HEAD)}"
 
 WORKER_ID="${1:-worker-$$}"
 WORKER_LOG="$LOGS_DIR/${WORKER_ID}.log"
+WORK_DIR="$WORKTREES_DIR/$WORKER_ID"
 
-mkdir -p "$TODO_DIR" "$IN_PROGRESS_DIR" "$DONE_DIR" "$LOCKS_DIR" "$LOGS_DIR"
+mkdir -p "$TODO_DIR" "$IN_PROGRESS_DIR" "$DONE_DIR" "$LOCKS_DIR" "$LOGS_DIR" "$WORKTREES_DIR"
 
 # --- STAN GLOBALNY (do rollbacku) ------------------------------------------
 
@@ -118,27 +124,26 @@ acquire_lock() {
     return 1
 }
 
-# Globalny mutex dla operacji git. Bez tego dwa workery wykonujące równolegle
-# 'git add -A' wciągnęłyby sobie nawzajem zmiany pod jeden commit (working tree
-# jest wspólny). Dla pełnej izolacji warto rozważyć 'git worktree' na worker.
-GIT_MUTEX="$LOCKS_DIR/_git.mutex"
-GIT_MUTEX_TIMEOUT="${GIT_MUTEX_TIMEOUT:-120}"
+# Każdy worker ma własny git worktree (.worktrees/<worker-id>). Dzięki temu
+# równolegli workerzy NIE mają wspólnego working tree — gemini każdego z nich
+# operuje izolowanie, a commity lecą na osobne gałęzie ai-grid/<task-name>.
+# Bezpiecznie pomijamy globalny mutex git.
 
-git_mutex_acquire() {
-    local waited=0
-    while ! mkdir "$GIT_MUTEX" 2>/dev/null; do
-        if (( waited >= GIT_MUTEX_TIMEOUT )); then
-            log "git_mutex: timeout (${GIT_MUTEX_TIMEOUT}s) — coś jest zaklinowane."
-            return 1
-        fi
-        sleep 1
-        ((waited++))
-    done
+ensure_worktree() {
+    # Jeśli worktree już istnieje, tylko sprawdź sanity.
+    if [[ -e "$WORK_DIR/.git" ]]; then
+        return 0
+    fi
+    log "WORKTREE: tworzę $WORK_DIR (base=$BASE_BRANCH)"
+    if ! ( cd "$REPO_ROOT" && git worktree add --detach "$WORK_DIR" "$BASE_BRANCH" ) >>"$WORKER_LOG" 2>&1; then
+        log "WORKTREE: BŁĄD przy 'git worktree add'."
+        return 1
+    fi
     return 0
 }
 
-git_mutex_release() {
-    rmdir "$GIT_MUTEX" 2>/dev/null || true
+get_base_sha() {
+    ( cd "$REPO_ROOT" && git rev-parse "$BASE_BRANCH" 2>/dev/null )
 }
 
 # --- WYBÓR ZADANIA ---------------------------------------------------------
@@ -187,10 +192,36 @@ execute_task() {
     local task_path="$CURRENT_IN_PROGRESS"
     local task_name="$CURRENT_TASK_NAME"
     local task_log="$LOGS_DIR/${WORKER_ID}_${task_name}.log"
+    local task_branch="ai-grid/${task_name%.md}"
 
-    log "START: $task_name (log: $(basename "$task_log"))"
+    log "START: $task_name -> $task_branch (worktree: $WORK_DIR)"
 
-    # Zbuduj prompt. Zawartość zadania trafia w całości, plus krótka instrukcja systemowa.
+    # 1. Upewnij się że worker ma własny worktree.
+    if ! ensure_worktree; then
+        return 5
+    fi
+
+    # 2. Świeży branch dla taska, na bazowym SHA z głównego repo.
+    local base_sha
+    base_sha="$(get_base_sha)"
+    if [[ -z "$base_sha" ]]; then
+        log "BASE: nie znaleziono gałęzi bazowej '$BASE_BRANCH'."
+        return 6
+    fi
+    (
+        cd "$WORK_DIR" || exit 7
+        # Wyrzuć wszystko z poprzedniego taska (worker reużywa worktree).
+        git reset --hard >/dev/null 2>&1 || true
+        git clean -fdx >/dev/null 2>&1 || true
+        git checkout -B "$task_branch" "$base_sha"
+    ) >>"$task_log" 2>&1
+    if [[ $? -ne 0 ]]; then
+        log "GIT: nie udało się przygotować gałęzi $task_branch."
+        return 7
+    fi
+
+    # 3. Zbuduj prompt. Treść zadania ląduje w prompcie — gemini nie musi
+    #    czytać pliku z dysku (i tak nie jest w worktree).
     local prompt
     prompt="$(cat <<EOF
 Jesteś ekspertem programowania pracującym w lokalnym repozytorium.
@@ -207,36 +238,26 @@ EOF
     {
         echo "===== PROMPT ====="
         echo "$prompt"
-        echo "===== OUTPUT ====="
+        echo "===== AI OUTPUT (cwd=$WORK_DIR, branch=$task_branch) ====="
     } >"$task_log"
 
-    # Uruchom AI. Output trafia do logu zadania.
-    if printf '%s' "$prompt" | run_ai >>"$task_log" 2>&1; then
-        log "AI: $task_name — zakończone sukcesem (kod 0)."
+    # 4. Uruchom AI w worktree.
+    if ( cd "$WORK_DIR" && printf '%s' "$prompt" | run_ai ) >>"$task_log" 2>&1; then
+        log "AI: $task_name — OK."
     else
         local rc=$?
-        log "AI: $task_name — BŁĄD (kod $rc). Rollback."
+        log "AI: $task_name — BŁĄD (kod $rc)."
         echo "===== AI EXIT CODE: $rc =====" >>"$task_log"
         return 1
     fi
 
-    # --- Sekcja krytyczna: tests + git ----------------------------------
-    # Wszystko poniżej dotyka wspólnego working tree i indeksu git, więc
-    # ujmujemy to w globalnym mutexie żeby nie zlewać zmian między workery.
-    if ! git_mutex_acquire; then
-        log "MUTEX: nie udało się zdobyć git mutexa — rollback."
-        return 4
-    fi
-
-    # Opcjonalna weryfikacja testami.
+    # 5. Opcjonalne testy (w worktree).
     if [[ -n "$TEST_CMD" ]]; then
-        log "TEST: uruchamiam '$TEST_CMD'"
+        log "TEST: '$TEST_CMD' w $WORK_DIR"
         echo "===== TEST OUTPUT ($TEST_CMD) =====" >>"$task_log"
-        if ! ( cd "$REPO_ROOT" && eval "$TEST_CMD" ) >>"$task_log" 2>&1; then
-            log "TEST: $task_name — FAIL. Cofam zmiany robocze."
-            ( cd "$REPO_ROOT" && git checkout -- . ) >>"$task_log" 2>&1 || true
-            ( cd "$REPO_ROOT" && git clean -fd ) >>"$task_log" 2>&1 || true
-            git_mutex_release
+        if ! ( cd "$WORK_DIR" && eval "$TEST_CMD" ) >>"$task_log" 2>&1; then
+            log "TEST: $task_name — FAIL. Reset worktree do $base_sha."
+            ( cd "$WORK_DIR" && git reset --hard "$base_sha" && git clean -fdx ) >>"$task_log" 2>&1 || true
             return 2
         fi
         log "TEST: PASS."
@@ -244,9 +265,10 @@ EOF
         log "TEST: pominięty (TEST_CMD pusty)."
     fi
 
-    # Commit zmian.
+    # 6. Commit w worktree, na gałęzi taska. Brak mutexa — różne gałęzie,
+    #    różne working trees, git radzi sobie z równoległymi commitami.
     (
-        cd "$REPO_ROOT" || exit 3
+        cd "$WORK_DIR" || exit 3
         git add -A
         if git diff --cached --quiet; then
             echo "===== GIT: brak zmian do zacommitowania =====" >>"$task_log"
@@ -255,10 +277,8 @@ EOF
         git commit -m "[AI-Grid] Zrobiono $task_name" >>"$task_log" 2>&1
     )
     local commit_rc=$?
-    git_mutex_release
-
     case "$commit_rc" in
-        0)  log "GIT: commit OK dla $task_name." ;;
+        0)  log "GIT: commit OK na $task_branch." ;;
         10) log "GIT: AI nie wprowadziło zmian — zadanie domknięte bez commita." ;;
         *)  log "GIT: BŁĄD commita ($commit_rc) dla $task_name."; return 3 ;;
     esac

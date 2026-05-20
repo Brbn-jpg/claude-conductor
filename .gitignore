@@ -12,6 +12,9 @@
 .agent-logs/*
 !.agent-logs/.keep
 
+# Per-worker git worktrees (used for parallel-safe AI work). Runtime only.
+.worktrees/
+
 # Editor / OS noise.
 .DS_Store
 *.swp
