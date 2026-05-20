@@ -1,0 +1,17 @@
+# Task queue: keep directory skeleton, ignore queue contents.
+.tasks/todo/*
+!.tasks/todo/.keep
+.tasks/in_progress/*
+!.tasks/in_progress/.keep
+.tasks/done/*
+!.tasks/done/.keep
+
+# Worker locks and logs are runtime-only.
+.agent-locks/*
+!.agent-locks/.keep
+.agent-logs/*
+!.agent-logs/.keep
+
+# Editor / OS noise.
+.DS_Store
+*.swp
