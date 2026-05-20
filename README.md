@@ -102,12 +102,14 @@ Trzy mechanizmy, które robią różnicę:
 |---|---|
 | `launch-grid.sh` | Orkiestrator: cleanup locków, sesja tmux, `N` paneli z workerami |
 | `worker-agent.sh` | Pętla pojedynczego workera: claim → AI → testy → commit → done |
-| `.tasks/_template.md` | Szablon zadania (Cel / Kontekst / Pliki / DoD) |
+| `status.sh` | Agregowany raport stanu gridu w jednym wywołaniu (kolejka, gałęzie, locki, summaries) |
+| `.tasks/_template.md` | Szablon zadania kodowego (Cel / Kontekst / Pliki / DoD) |
+| `.tasks/_template-research.md` | Szablon research-task (gemini bada codebase, pisze raport zamiast zmieniać kod) |
 | `.tasks/todo/` | Kolejka oczekujących zadań |
 | `.tasks/in_progress/` | Aktywnie przetwarzane |
 | `.tasks/done/` | Ukończone (audyt) |
 | `.agent-locks/` | Atomowe locki `mkdir` per task |
-| `.agent-logs/` | Logi: `<worker>.log` + `<worker>_<task>.log` (z promptem i AI output) |
+| `.agent-logs/` | Logi: `<worker>.log`, `<worker>_<task>.log` (pełny AI output), `<worker>_<task>.summary.md` (zwięzły raport per task — manager czyta to zamiast pełnego logu) |
 | `.worktrees/<worker-id>/` | Izolowany working tree workera (runtime, gitignored) |
 | `CLAUDE.md` | Instrukcje dla Claude Code (gdy używasz go jako managera) |
 

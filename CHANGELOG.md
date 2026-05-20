@@ -2,6 +2,21 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/), wersjonowanie [SemVer](https://semver.org/).
 
+## [0.2.0] — 2026-05-20
+
+Optymalizacja zużycia tokenów dla managera (Claude Code / inny LLM-orchestrator). Worker pisze zwięzłe podsumowanie per task, nowy `status.sh` agreguje stan gridu w jednym wywołaniu, dochodzi szablon research-task pozwalający delegować eksplorację codebase'u do gemini. Manager może operować end-to-end autonomicznie zamiast dopytywać o każdy krok.
+
+### Added
+
+- **Task summary per worker** — po commicie worker zapisuje `.agent-logs/<worker>_<task>.summary.md` z `WORKER`, `RESULT` (OK/AI-FAIL/TEST-FAIL/COMMIT-FAIL/NO-CHANGES), `BRANCH`, `COMMIT`, `FILES_CHANGED`, `DIFF`, `TEST_CMD`, `FINISHED` + listą plików. Manager czyta 16 linii zamiast pełnego AI logu (~3–5× oszczędność w fazie review).
+- **`status.sh`** — jednolinijkowy raport stanu gridu: kolejka (todo/in_progress/done), gałęzie `ai-grid/*` z diff stats, large-diff flagi (> `LARGE_DIFF_LINES`, domyślnie 100), locki ze stale-detection (>60 min), sesje tmux, recent summaries z `RESULT`. Bash 3.2-portable.
+- **`.tasks/_template-research.md`** — szablon dla research-task: gemini eksploruje wskazany zakres, zapisuje raport do `.tasks/research/<slug>.md` (TL;DR + Findings + Recommendations, max 300 słów). Manager konsumuje streszczenie zamiast czytać surowy kod (~5–10× oszczędność w fazie discovery).
+- **Sekcja "Autonomiczny tryb" w `CLAUDE.md`** — instrukcja dla LLM-managera: planuj → odpalaj `./launch-grid.sh --no-attach` sam → polluj `.tasks/done/` → review przez `./status.sh` + summary files (nie pełne logi) → auto-merge dla diffów < `LARGE_DIFF_LINES` → ZAWSZE pytaj przed `git push`.
+
+### Changed
+
+- `worker-agent.sh` — dodana funkcja `write_task_summary` wywoływana na każdym terminale `execute_task` (success / AI-fail / test-fail / commit-fail / no-changes).
+
 ## [0.1.0] — 2026-05-20
 
 Pierwszy publiczny release. Lokalny **multi-agent coding grid** zbudowany wyłącznie z natywnych narzędzi: Bash, system plików, `tmux`, gemini CLI. Odpalasz N workerów AI równolegle — każdy w izolowanym git worktree, każdy commituje na własną gałąź `ai-grid/<task>`.
@@ -54,4 +69,5 @@ Inspirowane wątkiem na Reddicie o lekkich multi-agent setupach. Zbudowane na za
 
 ---
 
+[0.2.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.1.0

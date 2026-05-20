@@ -146,6 +146,51 @@ get_base_sha() {
     ( cd "$REPO_ROOT" && git rev-parse "$BASE_BRANCH" 2>/dev/null )
 }
 
+# Zapisuje zwięzłe summary per task do .agent-logs/<worker>_<task>.summary.md.
+# Manager (Claude Code) czyta TO zamiast pełnego logu — oszczędność tokenów.
+write_task_summary() {
+    local result="$1"   # OK | AI-FAIL | TEST-FAIL | COMMIT-FAIL | NO-CHANGES
+    local task_name="$CURRENT_TASK_NAME"
+    local task_branch="ai-grid/${task_name%.md}"
+    local summary_file="$LOGS_DIR/${WORKER_ID}_${task_name}.summary.md"
+
+    local commit_sha="-"
+    local files_changed_count="-"
+    local diff_stat="-"
+    local files_list="(none)"
+
+    if [[ "$result" == "OK" && -d "$WORK_DIR" ]]; then
+        commit_sha="$(cd "$WORK_DIR" && git rev-parse --short HEAD 2>/dev/null || echo '-')"
+        local diff_range="${BASE_BRANCH}..HEAD"
+        files_changed_count="$(cd "$WORK_DIR" && git diff --name-only "$diff_range" 2>/dev/null | wc -l | tr -d ' ')"
+        diff_stat="$(cd "$WORK_DIR" && git diff --shortstat "$diff_range" 2>/dev/null | sed 's/^ *//')"
+        files_list="$(cd "$WORK_DIR" && git diff --name-status "$diff_range" 2>/dev/null || echo '(none)')"
+    fi
+
+    {
+        echo "# Summary: $task_name"
+        echo
+        echo "- **WORKER:** $WORKER_ID"
+        echo "- **RESULT:** $result"
+        echo "- **BRANCH:** $task_branch"
+        echo "- **COMMIT:** $commit_sha"
+        echo "- **FILES_CHANGED:** $files_changed_count"
+        echo "- **DIFF:** ${diff_stat:--}"
+        echo "- **TEST_CMD:** ${TEST_CMD:-<skipped>}"
+        echo "- **FINISHED:** $(date '+%Y-%m-%d %H:%M:%S')"
+        echo
+        echo "## Files"
+        echo
+        echo '```'
+        echo "$files_list"
+        echo '```'
+        echo
+        echo "## Full log"
+        echo
+        echo "\`.agent-logs/${WORKER_ID}_${task_name}.log\` — otwórz tylko jeśli RESULT != OK."
+    } > "$summary_file"
+}
+
 # --- WYBÓR ZADANIA ---------------------------------------------------------
 
 # Iteruje po plikach todo/*.md w kolejności leksykograficznej, próbuje
@@ -248,6 +293,7 @@ EOF
         local rc=$?
         log "AI: $task_name — BŁĄD (kod $rc)."
         echo "===== AI EXIT CODE: $rc =====" >>"$task_log"
+        write_task_summary "AI-FAIL"
         return 1
     fi
 
@@ -258,6 +304,7 @@ EOF
         if ! ( cd "$WORK_DIR" && eval "$TEST_CMD" ) >>"$task_log" 2>&1; then
             log "TEST: $task_name — FAIL. Reset worktree do $base_sha."
             ( cd "$WORK_DIR" && git reset --hard "$base_sha" && git clean -fdx ) >>"$task_log" 2>&1 || true
+            write_task_summary "TEST-FAIL"
             return 2
         fi
         log "TEST: PASS."
@@ -278,9 +325,12 @@ EOF
     )
     local commit_rc=$?
     case "$commit_rc" in
-        0)  log "GIT: commit OK na $task_branch." ;;
-        10) log "GIT: AI nie wprowadziło zmian — zadanie domknięte bez commita." ;;
-        *)  log "GIT: BŁĄD commita ($commit_rc) dla $task_name."; return 3 ;;
+        0)  log "GIT: commit OK na $task_branch."; write_task_summary "OK" ;;
+        10) log "GIT: AI nie wprowadziło zmian — zadanie domknięte bez commita."
+            write_task_summary "NO-CHANGES" ;;
+        *)  log "GIT: BŁĄD commita ($commit_rc) dla $task_name."
+            write_task_summary "COMMIT-FAIL"
+            return 3 ;;
     esac
 
     return 0
