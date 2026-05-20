@@ -69,12 +69,13 @@ $EDITOR .tasks/todo/task-001-moj.md   # wypełnij Cel / Kontekst / Pliki / DoD
 # Ctrl-b d — odłącz od sesji   |   tmux attach -t ai-grid — wróć
 
 # 3. Po zakończeniu zobacz co zrobili
-git branch | grep ai-grid
-git log -p ai-grid/task-001-moj
+./status.sh                             # przegląd jednym wywołaniem
+git log -p ai-grid/task-001-moj         # podgląd diffu konkretnej gałęzi
 
-# 4. Merguj to, co OK
-git merge --no-ff ai-grid/task-001-moj
-git branch -D ai-grid/task-001-moj
+# 4. Zintegruj (cherry-pick, linear history, sprząta worktree+branch)
+./integrate.sh --all                    # wszystkie ai-grid/* na bieżącą gałąź
+# albo wybrany task:
+./integrate.sh ai-grid/task-001-moj
 ```
 
 Tryb headless (CI / inny skrypt):
@@ -103,6 +104,7 @@ Trzy mechanizmy, które robią różnicę:
 | `launch-grid.sh` | Orkiestrator: cleanup locków, sesja tmux, `N` paneli z workerami |
 | `worker-agent.sh` | Pętla pojedynczego workera: claim → AI → testy → commit → done |
 | `status.sh` | Agregowany raport stanu gridu w jednym wywołaniu (kolejka, gałęzie, locki, summaries) |
+| `integrate.sh` | Cherry-pick `ai-grid/*` na bieżącą gałąź (1 task = 1 commit, bez merge-commitów) + cleanup worktree/branch |
 | `.tasks/_template.md` | Szablon zadania kodowego (Cel / Kontekst / Pliki / DoD) |
 | `.tasks/_template-research.md` | Szablon research-task (gemini bada codebase, pisze raport zamiast zmieniać kod) |
 | `.tasks/todo/` | Kolejka oczekujących zadań |
@@ -143,13 +145,15 @@ tmux kill-session -t ai-grid       # zabij całą sesję
 
 ## Sprzątanie po sesji
 
+Domyślnie `./integrate.sh` robi to za Ciebie po każdym sukcesie (worktree + branch). Ręcznie tylko gdy chcesz odrzucić wyniki bez integracji:
+
 ```bash
 git worktree list                              # zobacz aktywne worktree
-git worktree remove .worktrees/worker-1        # po jednym
-git branch -D ai-grid/task-XXX                 # branchy po mergu
+git worktree remove --force .worktrees/worker-1
+git branch -D ai-grid/task-XXX
 
-# Albo skrótem (wszystkie worktree workerów + branchy ai-grid):
-git worktree list | awk '/.worktrees\// {print $1}' | xargs -n1 git worktree remove
+# Reset całej sesji (wszystkie worktree workerów + gałęzie ai-grid):
+git worktree list | awk '/.worktrees\// {print $1}' | xargs -n1 git worktree remove --force
 git branch | awk '/ai-grid\//{print $1}' | xargs -r git branch -D
 ```
 

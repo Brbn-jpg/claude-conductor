@@ -2,6 +2,23 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/), wersjonowanie [SemVer](https://semver.org/).
 
+## [0.3.0] — 2026-05-20
+
+Linear-history integration. Przy 14 workerach domyślne `git merge --no-ff` produkowało spaghetti (28 commitów + 14 równoległych railsów na 14 tasków). Nowy `integrate.sh` używa cherry-pick: każdy task → jeden commit na main, bez merge-commitów, z automatycznym cleanupem worktree i gałęzi.
+
+### Added
+
+- **`integrate.sh`** — cherry-pickuje gałęzie `ai-grid/*` na bieżącą gałąź. Tryby: pojedyncza gałąź, `--all`, `--dry-run`, `--keep-branch`. Sanity-check working tree przed startem; STOP-uje z czytelnym komunikatem przy konflikcie (kod 4) zostawiając pozostałe gałęzie nietknięte. Po sukcesie usuwa worker worktree + gałąź `ai-grid/<task>`.
+
+### Changed
+
+- **`CLAUDE.md`** — sekcja "Integracja" w "Autonomicznym trybie": manager używa `./integrate.sh --all` zamiast `git merge --no-ff`. Konflikt → przerwij autonomię, zapytaj użytkownika.
+- **`README.md`** — quickstart pokazuje `./integrate.sh --all`, sekcja "Sprzątanie" zaznacza, że integrate.sh robi to automatycznie.
+
+### Why
+
+`git merge --no-ff` zachowuje "to było na osobnej gałęzi" — ale w naszym workflow każda gałąź ma dokładnie 1 commit (worker commituje raz), więc ta informacja jest bezwartościowa. Cherry-pick przepisuje commit na main z nowym SHA, ale identycznym commit message ("[AI-Grid] Zrobiono task-XXX"). Wynik: czytelny `git log --oneline`, `git bisect` działa normalnie, review 1:1 z taskiem.
+
 ## [0.2.0] — 2026-05-20
 
 Optymalizacja zużycia tokenów dla managera (Claude Code / inny LLM-orchestrator). Worker pisze zwięzłe podsumowanie per task, nowy `status.sh` agreguje stan gridu w jednym wywołaniu, dochodzi szablon research-task pozwalający delegować eksplorację codebase'u do gemini. Manager może operować end-to-end autonomicznie zamiast dopytywać o każdy krok.
@@ -69,5 +86,6 @@ Inspirowane wątkiem na Reddicie o lekkich multi-agent setupach. Zbudowane na za
 
 ---
 
+[0.3.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.1.0

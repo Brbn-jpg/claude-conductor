@@ -24,9 +24,14 @@ Domyślnie pracuj end-to-end **bez dopytywania użytkownika** o każdy krok. Cel
    - `.agent-logs/<worker>_<task>.summary.md` (10–15 linii per task)
    - Pełny log otwieraj TYLKO jeśli summary mówi `RESULT: AI-FAIL` / `TEST-FAIL` / `COMMIT-FAIL`.
 
-5. **Merge** — gałęzie `ai-grid/<task>` z `RESULT: OK` i diffem poniżej `LARGE_DIFF_LINES` (domyślnie 100) możesz mergować sam do `BASE_BRANCH`. Dla większych — pokaż użytkownikowi summary i zapytaj.
+5. **Integracja** — **NIE używaj `git merge --no-ff`** (zaśmieca historię merge-commitami i równoległymi railsami przy wielu workerach). Zamiast tego użyj `./integrate.sh`:
+   - `./integrate.sh --all` — cherry-pickuje wszystkie `ai-grid/*` w kolejności, linearyzuje historię (1 task = 1 commit na `BASE_BRANCH`), sam czyści worktree + gałęzie.
+   - `./integrate.sh ai-grid/<task>` — gdy chcesz wziąć tylko wybrany task.
+   - `./integrate.sh --all --dry-run` — podgląd bez zmian.
+   - Przy konflikcie skrypt STOP-uje z kodem 4 i mówi co zrobić; przerywaj wtedy autonomię i zapytaj użytkownika.
+   - Dla pojedynczych gałęzi z diffem > `LARGE_DIFF_LINES` (domyślnie 100) — pokaż summary i zapytaj przed `./integrate.sh`.
 
-6. **Sprzątanie** — po mergu usuń gałąź (`git branch -D ai-grid/<task>`) i worktree (`git worktree remove .worktrees/<worker>`).
+6. **Sprzątanie** — `integrate.sh` robi to za Ciebie (worktree + branch po każdym sukcesie). Ręcznie tylko jeśli `--keep-branch`.
 
 7. **Push** — **ZAWSZE pytaj** przed `git push` (reguła z pamięci ma pierwszeństwo nad #4 powyżej).
 
