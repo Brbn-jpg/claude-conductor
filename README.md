@@ -165,4 +165,4 @@ W repozytorium jest [`CLAUDE.md`](CLAUDE.md) z instrukcjami dla [Claude Code](ht
 
 ## Licencja
 
-MIT (do uzupełnienia w `LICENSE`).
+[MIT](LICENSE) © 2026 Jakub Kuźnicki
