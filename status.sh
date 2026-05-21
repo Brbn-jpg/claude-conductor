@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# status.sh — agregowany raport stanu gridu w jednym wywołaniu.
+# status.sh — aggregated grid status report in one call.
 #
-# Manager (Claude Code / Ty) wywołuje to ZAMIAST robić 5 osobnych git/ls/tmux
-# komend. Daje pełny obraz: kolejka, gałęzie ai-grid/*, podejrzanie duże diffy,
-# locki, sesje tmux, ostatnie summary.
+# The manager (Claude Code / you) calls this INSTEAD of running 5 separate
+# git/ls/tmux commands. Full picture: queue, ai-grid/* branches, suspiciously
+# large diffs, locks, tmux sessions, recent summaries.
 
 set -uo pipefail
 
@@ -26,7 +26,7 @@ echo "BASE_BRANCH:        $BASE_BRANCH"
 echo "LARGE_DIFF_LINES:   $LARGE_DIFF_LINES"
 echo
 
-# --- Kolejka -----------------------------------------------------------------
+# --- Queue -----------------------------------------------------------------
 echo "QUEUE:"
 echo "  todo         ($(count_md .tasks/todo)):"
 list_md .tasks/todo | sed 's/^/    - /'
@@ -35,7 +35,7 @@ list_md .tasks/in_progress | sed 's/^/    - /'
 echo "  done         ($(count_md .tasks/done)):"
 list_md .tasks/done | sed 's/^/    - /'
 
-# --- Gałęzie ai-grid/* -------------------------------------------------------
+# --- ai-grid/* branches ----------------------------------------------------
 echo
 echo "BRANCHES (ai-grid/*):"
 branches=()
@@ -59,7 +59,7 @@ else
     done
 fi
 
-# --- Locki -------------------------------------------------------------------
+# --- Locks -----------------------------------------------------------------
 echo
 echo "LOCKS:"
 locks=()
@@ -76,7 +76,7 @@ else
     done
 fi
 
-# --- Sesja tmux --------------------------------------------------------------
+# --- tmux session ----------------------------------------------------------
 echo
 echo "TMUX:"
 if tmux has-session -t ai-grid 2>/dev/null; then
@@ -86,9 +86,9 @@ else
     echo "  no ai-grid session"
 fi
 
-# --- Ostatnie summary --------------------------------------------------------
+# --- Recent summaries ------------------------------------------------------
 echo
-echo "RECENT SUMMARIES (5 last):"
+echo "RECENT SUMMARIES (5 latest):"
 summaries=()
 while IFS= read -r _s; do summaries+=("$_s"); done < <(ls -t .agent-logs/*.summary.md 2>/dev/null | head -5 || true)
 if (( ${#summaries[@]} == 0 )); then
@@ -96,11 +96,11 @@ if (( ${#summaries[@]} == 0 )); then
 else
     for s in "${summaries[@]}"; do
         result=$(grep -E '^\- \*\*RESULT:\*\*' "$s" | head -1 | sed 's/.*RESULT:\*\* //')
-        echo "  - $(basename "$s")  → ${result:-?}"
+        echo "  - $(basename "$s")  -> ${result:-?}"
     done
 fi
 
-# --- Worktrees ---------------------------------------------------------------
+# --- Worktrees -------------------------------------------------------------
 echo
 echo "WORKTREES:"
 git worktree list 2>/dev/null | sed 's/^/  /' || echo "  (none)"

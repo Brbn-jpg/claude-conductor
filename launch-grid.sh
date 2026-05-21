@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
-# launch-grid.sh — odpala N równoległych workerów AI w sesji tmux.
+# launch-grid.sh — spawn N parallel AI workers in a tmux session.
 #
-# Użycie:
-#   ./launch-grid.sh                # 2 workery (domyślnie)
-#   ./launch-grid.sh --workers 4    # 4 workery
+# Usage:
+#   ./launch-grid.sh                # 2 workers (default)
+#   ./launch-grid.sh --workers 4    # 4 workers
 #   ./launch-grid.sh -w 3
 #
-# Wymagania: tmux w PATH, ./worker-agent.sh wykonywalny.
+# Requirements: tmux on PATH, ./worker-agent.sh executable.
 
 set -euo pipefail
 
-# --- KONFIGURACJA -----------------------------------------------------------
+# --- CONFIG -----------------------------------------------------------------
 
 DEFAULT_WORKERS=2
 SESSION_NAME="ai-grid"
-STALE_LOCK_MINUTES=60          # locki starsze niż X minut traktujemy jak osierocone
+STALE_LOCK_MINUTES=60          # locks older than X minutes are treated as orphaned
 
-# --- ŚCIEŻKI ----------------------------------------------------------------
+# --- PATHS ------------------------------------------------------------------
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$SCRIPT_DIR"
@@ -25,21 +25,21 @@ TODO_DIR="$REPO_ROOT/.tasks/todo"
 LOCKS_DIR="$REPO_ROOT/.agent-locks"
 LOGS_DIR="$REPO_ROOT/.agent-logs"
 
-# --- PARSOWANIE ARGUMENTÓW --------------------------------------------------
+# --- ARGUMENT PARSING -------------------------------------------------------
 
 WORKERS="$DEFAULT_WORKERS"
 NO_ATTACH=0
 
 usage() {
     cat <<USAGE
-Użycie: $(basename "$0") [--workers N | -w N] [--no-attach]
+Usage: $(basename "$0") [--workers N | -w N] [--no-attach]
 
-Opcje:
-  --workers N, -w N   Liczba równoległych workerów (domyślnie: $DEFAULT_WORKERS).
-  --no-attach         Stwórz sesję tmux i wyjdź (bez 'tmux attach').
-                      Przydatne w CI / przy uruchamianiu z poziomu agenta.
-                      Sesję obejrzysz: tmux attach -t $SESSION_NAME
-  -h, --help          Pokaż tę pomoc.
+Options:
+  --workers N, -w N   Number of parallel workers (default: $DEFAULT_WORKERS).
+  --no-attach         Create the tmux session and exit (skip 'tmux attach').
+                      Useful in CI / when launching from an agent.
+                      Inspect later: tmux attach -t $SESSION_NAME
+  -h, --help          Show this help.
 USAGE
 }
 
@@ -47,7 +47,7 @@ while (( $# > 0 )); do
     case "$1" in
         --workers|-w)
             if [[ -z "${2:-}" || ! "$2" =~ ^[0-9]+$ ]]; then
-                echo "BŁĄD: --workers wymaga liczby." >&2
+                echo "ERROR: --workers requires a number." >&2
                 usage >&2
                 exit 2
             fi
@@ -67,7 +67,7 @@ while (( $# > 0 )); do
             exit 0
             ;;
         *)
-            echo "BŁĄD: nieznany argument '$1'." >&2
+            echo "ERROR: unknown argument '$1'." >&2
             usage >&2
             exit 2
             ;;
@@ -75,48 +75,48 @@ while (( $# > 0 )); do
 done
 
 if ! [[ "$WORKERS" =~ ^[1-9][0-9]*$ ]]; then
-    echo "BŁĄD: liczba workerów musi być >= 1 (dostałem '$WORKERS')." >&2
+    echo "ERROR: worker count must be >= 1 (got '$WORKERS')." >&2
     exit 2
 fi
 
 # --- SANITY CHECKS ---------------------------------------------------------
 
 if ! command -v tmux >/dev/null 2>&1; then
-    echo "BŁĄD: brak 'tmux' w PATH. Zainstaluj tmux i spróbuj ponownie." >&2
+    echo "ERROR: 'tmux' not found in PATH. Install tmux and try again." >&2
     exit 1
 fi
 
 if [[ ! -x "$WORKER_SCRIPT" ]]; then
-    echo "BŁĄD: $WORKER_SCRIPT nie istnieje albo nie jest wykonywalny." >&2
-    echo "Wykonaj: chmod +x $WORKER_SCRIPT" >&2
+    echo "ERROR: $WORKER_SCRIPT is missing or not executable." >&2
+    echo "Run: chmod +x $WORKER_SCRIPT" >&2
     exit 1
 fi
 
 mkdir -p "$TODO_DIR" "$LOCKS_DIR" "$LOGS_DIR"
 
-# --- 1. SPRZĄTANIE STARYCH LOCKÓW ------------------------------------------
-# Locki tworzymy przez `mkdir`, więc są katalogami. Czyścimy te starsze niż
-# STALE_LOCK_MINUTES — chronimy się przed sytuacją po crashu workera, który
-# nie zdążył zwolnić swojego locka w trapie.
+# --- 1. STALE LOCK CLEANUP --------------------------------------------------
+# Locks are created with `mkdir`, so they're directories. We clean those older
+# than STALE_LOCK_MINUTES — protects against the case where a worker crashed
+# without firing its trap to release the lock.
 
 if [[ -d "$LOCKS_DIR" ]]; then
     # shellcheck disable=SC2086
     stale_count=$(find "$LOCKS_DIR" -mindepth 1 -maxdepth 1 -name '*.lock' \
                        -mmin +"$STALE_LOCK_MINUTES" 2>/dev/null | wc -l | tr -d ' ')
     if (( stale_count > 0 )); then
-        echo "[launch] usuwam $stale_count osieroconych locków (starszych niż ${STALE_LOCK_MINUTES} min)..."
+        echo "[launch] removing $stale_count orphaned lock(s) (older than ${STALE_LOCK_MINUTES} min)..."
         find "$LOCKS_DIR" -mindepth 1 -maxdepth 1 -name '*.lock' \
              -mmin +"$STALE_LOCK_MINUTES" -exec rm -rf {} + 2>/dev/null || true
     fi
 fi
 
-# --- 2. SPRAWDŹ KOLEJKĘ ZADAŃ ----------------------------------------------
+# --- 2. CHECK TASK QUEUE ---------------------------------------------------
 
 shopt -s nullglob
 todo_files=( "$TODO_DIR"/*.md )
 shopt -u nullglob
 
-# Wyfiltruj .keep i ukryte
+# Filter out .keep and hidden files
 real_todo=()
 for f in "${todo_files[@]}"; do
     bn="$(basename "$f")"
@@ -125,56 +125,56 @@ for f in "${todo_files[@]}"; do
 done
 
 if (( ${#real_todo[@]} == 0 )); then
-    echo "[launch] Brak zadań w $TODO_DIR. Dodaj plik .md (patrz .tasks/_template.md) i odpal ponownie."
+    echo "[launch] No tasks in $TODO_DIR. Add a .md file (see .tasks/_template.md) and try again."
     exit 0
 fi
 
-echo "[launch] Znaleziono ${#real_todo[@]} zadań w kolejce, startuję $WORKERS workerów w sesji '$SESSION_NAME'."
+echo "[launch] Found ${#real_todo[@]} task(s) in the queue, starting $WORKERS worker(s) in session '$SESSION_NAME'."
 
-# --- 3. SESJA TMUX ---------------------------------------------------------
+# --- 3. TMUX SESSION -------------------------------------------------------
 
 if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    echo "[launch] Sesja '$SESSION_NAME' już istnieje."
-    echo "[launch] (Świeży start: tmux kill-session -t $SESSION_NAME)"
+    echo "[launch] Session '$SESSION_NAME' already exists."
+    echo "[launch] (Fresh start: tmux kill-session -t $SESSION_NAME)"
     if (( NO_ATTACH )); then
         exit 0
     fi
     exec tmux attach -t "$SESSION_NAME"
 fi
 
-# Komenda uruchamiana w każdym panelu. Po zakończeniu workera pane czeka
-# na Enter — dzięki temu widzisz końcowe logi zamiast natychmiastowego close'u.
+# Command run in each pane. After the worker exits the pane waits for Enter —
+# so you can see final logs instead of an instant close.
 build_pane_cmd() {
     local worker_id="$1"
-    # printf %q chroni przed spacjami / znakami specjalnymi w ścieżkach.
-    printf 'cd %q && ./worker-agent.sh %q; echo; echo "[%s zakończył — Enter zamyka panel]"; read -r _' \
+    # printf %q protects against spaces / special chars in paths.
+    printf 'cd %q && ./worker-agent.sh %q; echo; echo "[%s finished — press Enter to close pane]"; read -r _' \
         "$REPO_ROOT" "$worker_id" "$worker_id"
 }
 
-# Utwórz sesję z pierwszym workerem.
+# Create the session with the first worker.
 tmux new-session -d -s "$SESSION_NAME" -n grid "bash -lc $(printf '%q' "$(build_pane_cmd "worker-1")")"
 
-# Dorzuć kolejne workery jako nowe panele.
+# Add the remaining workers as new panes.
 for (( i=2; i<=WORKERS; i++ )); do
     tmux split-window -t "${SESSION_NAME}:grid" \
         "bash -lc $(printf '%q' "$(build_pane_cmd "worker-$i")")"
-    # Po każdym splicie wyrównujemy layout, żeby split-window nie odmawiał z braku miejsca.
+    # Re-tile after each split so split-window doesn't refuse for lack of room.
     tmux select-layout -t "${SESSION_NAME}:grid" tiled >/dev/null
 done
 
-# Ostateczne ułożenie kafelkowe + tytuły paneli ułatwiające orientację.
+# Final tiled layout + pane titles for orientation.
 tmux select-layout -t "${SESSION_NAME}:grid" tiled >/dev/null
 tmux set-option -t "$SESSION_NAME" pane-border-status top >/dev/null 2>&1 || true
 tmux set-option -t "$SESSION_NAME" pane-border-format ' #{pane_index}: #{pane_title} ' >/dev/null 2>&1 || true
 
-echo "[launch] Sesja gotowa."
+echo "[launch] Session ready."
 
 # --- 4. ATTACH -------------------------------------------------------------
 
 if (( NO_ATTACH )); then
-    echo "[launch] --no-attach: sesja działa w tle. Obejrzyj: tmux attach -t $SESSION_NAME"
+    echo "[launch] --no-attach: session runs in the background. Inspect: tmux attach -t $SESSION_NAME"
     exit 0
 fi
 
-echo "[launch] Podłączam się... (odłącz: Ctrl-b d)"
+echo "[launch] Attaching... (detach: Ctrl-b d)"
 exec tmux attach -t "$SESSION_NAME"

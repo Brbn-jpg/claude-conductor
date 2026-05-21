@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# integrate.sh — cherry-pickuje gałęzie ai-grid/* na bieżącą gałąź.
+# integrate.sh — cherry-pick ai-grid/* branches onto the current branch.
 #
-# Po sesji workerów masz N gałęzi `ai-grid/<task>`, każda z 1 commitem AI.
-# Ten skrypt linearyzuje historię: każdy task → jeden commit na main,
-# bez merge-commitów, bez równoległych railsów. Sprząta worktree + gałąź.
+# After a worker session you have N ai-grid/<task> branches, each with 1 AI commit.
+# This script linearizes history: each task -> one commit on main, no merge
+# commits, no parallel rails. Cleans up the worktree + branch on success.
 #
-# Użycie:
-#   ./integrate.sh ai-grid/task-101              # pojedyncza gałąź
-#   ./integrate.sh task-101                      # bez prefiksu też OK
-#   ./integrate.sh --all                         # wszystkie ai-grid/* w kolejności
-#   ./integrate.sh --all --dry-run               # podgląd
-#   ./integrate.sh --all --keep-branch           # nie kasuj gałęzi po sukcesie
+# Usage:
+#   ./integrate.sh ai-grid/task-101              # single branch
+#   ./integrate.sh task-101                      # prefix added for you
+#   ./integrate.sh --all                         # all ai-grid/* in order
+#   ./integrate.sh --all --dry-run               # preview
+#   ./integrate.sh --all --keep-branch           # don't delete ai-grid/<task> on success
 
 set -euo pipefail
 
@@ -26,26 +26,27 @@ TARGET=""
 
 usage() {
     cat <<USAGE
-Użycie: $(basename "$0") <branch> [opcje]
-       $(basename "$0") --all [opcje]
+Usage: $(basename "$0") <branch> [options]
+       $(basename "$0") --all [options]
 
-Cherry-pickuje ai-grid/* na bieżącą gałąź (linear history: 1 task = 1 commit).
-Po sukcesie usuwa worktree workera + gałąź ai-grid/<task>.
+Cherry-picks ai-grid/* onto the current branch (linear history:
+1 task = 1 commit). After success removes the worker's worktree
+and the ai-grid/<task> branch.
 
-Argumenty:
-  <branch>            ai-grid/<task> lub <task> (prefiks dorabiam).
+Arguments:
+  <branch>            ai-grid/<task> or <task> (prefix added for you).
 
-Opcje:
-  --all               Wszystkie ai-grid/* w kolejności leksykograficznej
-                      (przy zero-padded numerach = chronologicznie).
-  --dry-run           Pokaż co by zrobił, nic nie wykonuj.
-  --keep-branch       Nie kasuj ai-grid/<task> po cherry-picku (audyt).
-  -h, --help          Pomoc.
+Options:
+  --all               All ai-grid/* in lexicographic order
+                      (with zero-padded task numbers = chronological).
+  --dry-run           Show what would happen, don't execute.
+  --keep-branch       Don't delete ai-grid/<task> after cherry-pick (audit).
+  -h, --help          Show help.
 
-Zachowanie przy konflikcie:
-  STOP. Skrypt wychodzi z kodem 4 i pokazuje co zrobić ręcznie
-  (git cherry-pick --continue / --abort). Pozostałe niezintegrowane
-  gałęzie zostają nietknięte.
+Conflict behavior:
+  STOP. Script exits with code 4 and prints what to do manually
+  (git cherry-pick --continue / --abort). Remaining un-integrated
+  branches are left untouched.
 USAGE
 }
 
@@ -57,35 +58,35 @@ while (( $# > 0 )); do
         -h|--help)      usage; exit 0 ;;
         ai-grid/*)      TARGET="$1"; shift ;;
         task-*|research-*) TARGET="ai-grid/$1"; shift ;;
-        -*)             echo "BŁĄD: nieznana flaga '$1'" >&2; usage >&2; exit 2 ;;
-        *)              echo "BŁĄD: nieoczekiwany argument '$1'" >&2; usage >&2; exit 2 ;;
+        -*)             echo "ERROR: unknown flag '$1'" >&2; usage >&2; exit 2 ;;
+        *)              echo "ERROR: unexpected argument '$1'" >&2; usage >&2; exit 2 ;;
     esac
 done
 
 if (( ! ALL_MODE )) && [[ -z "$TARGET" ]]; then
-    echo "BŁĄD: podaj <branch> albo --all" >&2
+    echo "ERROR: pass <branch> or --all" >&2
     usage >&2
     exit 2
 fi
 if (( ALL_MODE )) && [[ -n "$TARGET" ]]; then
-    echo "BŁĄD: --all i pojedyncza gałąź wzajemnie się wykluczają" >&2
+    echo "ERROR: --all and a specific branch are mutually exclusive" >&2
     exit 2
 fi
 
 # --- SANITY ----------------------------------------------------------------
 
-# Czy working tree czysty?
+# Working tree clean?
 if [[ -n "$(git status --porcelain)" ]]; then
-    echo "BŁĄD: working tree nie jest czysty — commit/stash zmiany najpierw." >&2
+    echo "ERROR: working tree is not clean — commit/stash changes first." >&2
     git status --short >&2
     exit 3
 fi
 
-# Czy nie jesteśmy w środku innej operacji git?
+# Not in the middle of another git operation?
 GIT_DIR="$(git rev-parse --git-dir)"
 if [[ -f "$GIT_DIR/CHERRY_PICK_HEAD" || -f "$GIT_DIR/MERGE_HEAD" \
    || -d "$GIT_DIR/rebase-merge" || -d "$GIT_DIR/rebase-apply" ]]; then
-    echo "BŁĄD: trwająca operacja git (cherry-pick/merge/rebase) — dokończ ją najpierw." >&2
+    echo "ERROR: git operation in progress (cherry-pick/merge/rebase) — finish it first." >&2
     exit 3
 fi
 
@@ -97,7 +98,7 @@ integrate_one() {
     local branch="$1"
 
     if ! git rev-parse --verify --quiet "$branch" >/dev/null; then
-        echo "  SKIP: $branch — gałąź nie istnieje"
+        echo "  SKIP: $branch — branch does not exist"
         return 1
     fi
 
@@ -106,7 +107,7 @@ integrate_one() {
     count=$(git rev-list --count "$base..$branch")
 
     if (( count == 0 )); then
-        echo "  SKIP: $branch — brak commitów do integracji (już w HEAD)"
+        echo "  SKIP: $branch — no commits to integrate (already in HEAD)"
         return 1
     fi
 
@@ -123,15 +124,15 @@ integrate_one() {
     if ! git cherry-pick --no-edit "$base..$branch"; then
         cat >&2 <<EOF
 
-  KONFLIKT przy $branch. Rozstrzygnij ręcznie:
-    git status                     # zobacz konflikty
-    \$EDITOR <pliki>                # rozwiąż
-    git add <pliki>
+  CONFLICT on $branch. Resolve manually:
+    git status                     # see conflicts
+    \$EDITOR <files>                # resolve
+    git add <files>
     git cherry-pick --continue
-  ALBO porzuć:
+  Or abort:
     git cherry-pick --abort
 
-  Pozostałe niezintegrowane gałęzie zostały nietknięte.
+  Remaining un-integrated branches are left untouched.
 EOF
         return 2
     fi
@@ -140,19 +141,19 @@ EOF
     new_sha=$(git rev-parse --short HEAD)
     echo "  OK: $tip_sha -> $new_sha"
 
-    # Sprzątanie worktree (jeśli ten branch jest checkoutowany w którymś)
+    # Cleanup the worktree (if this branch is checked out in any of them)
     local wt
     wt=$(git worktree list --porcelain | awk -v b="refs/heads/$branch" '
         $1=="worktree" { p=$2 }
         $1=="branch"   { if ($2==b) { print p; exit } }
     ')
     if [[ -n "$wt" && "$wt" != "$SCRIPT_DIR" ]]; then
-        echo "     ~ usuwam worktree $wt"
+        echo "     ~ removing worktree $wt"
         git worktree remove --force "$wt" 2>/dev/null || true
     fi
 
     if (( ! KEEP_BRANCH )); then
-        echo "     ~ usuwam gałąź $branch"
+        echo "     ~ deleting branch $branch"
         git branch -D "$branch" >/dev/null
     fi
 
@@ -168,7 +169,7 @@ if (( ALL_MODE )); then
     done < <(git branch --format='%(refname:short)' | grep '^ai-grid/' | sort)
 
     if (( ${#branches[@]} == 0 )); then
-        echo "Brak gałęzi ai-grid/* do integracji."
+        echo "No ai-grid/* branches to integrate."
         exit 0
     fi
 

@@ -1,20 +1,20 @@
 # claude-conductor
 
-> **Odpal N agentów AI równolegle. Bash + tmux + gemini CLI. Zero frameworków.**
+> **Run N AI agents in parallel. Bash + tmux + gemini CLI. No frameworks.**
 
-Wrzucasz zadania do `.tasks/todo/` jako pliki Markdown. `./launch-grid.sh --workers N` odpala N pracujących workerów w sesji `tmux` — każdy w **swoim worktree git**, każdy commit na **swojej gałęzi** `ai-grid/<task>`. Po zakończeniu Ty (jako manager) mergujesz to, co OK.
+Drop tasks into `.tasks/todo/` as Markdown files. `./launch-grid.sh --workers N` spawns N parallel workers in a `tmux` session — each in **its own git worktree**, each commit on **its own branch** `ai-grid/<task>`. After workers finish, you (as the manager) merge what's good.
 
-Bez Docker'a, bez Pythonów, bez orkiestratorów. Plik lock-owy to katalog utworzony przez `mkdir`. Kolejka to katalog z plikami `.md`. Tyle.
+No Docker, no Python stacks, no orchestrators. The lock file is a directory created with `mkdir`. The queue is a directory of `.md` files. That's it.
 
-## Po co to?
+## Why?
 
-Masz pakiet małych, **niezależnych** zadań — "dopisz 5 testów do tych endpointów", "wygeneruj fixtury do 12 modeli", "przygotuj 8 README do submodułów"? Zamiast czekać aż jedna instancja AI to przemiele sekwencyjnie, odpalasz N workerów. Bo gemini-cli (lub dowolne inne CLI po podmianie jednej funkcji) z `--yolo` może operować na repo bez nadzoru, ale tylko jeśli każdy ma **własną piaskownicę**. Stąd worktree per worker.
+You have a batch of small, **independent** tasks — "add 5 tests to these endpoints", "generate fixtures for 12 models", "write 8 READMEs for the submodules"? Instead of waiting for one AI instance to grind through them sequentially, spawn N workers. Because gemini-cli (or any other CLI after swapping one function) in `--yolo` mode can operate on a repo unattended, but only if each instance has **its own sandbox**. Hence: worktree per worker.
 
-## Jak to wygląda
+## What it looks like
 
 ```
                     +--------------------+
-        Manager  -> |  .tasks/todo/      |   (kolejka)
+        Manager  -> |  .tasks/todo/      |   (queue)
                     +---------+----------+
                               |
                               v
@@ -41,18 +41,18 @@ Masz pakiet małych, **niezależnych** zadań — "dopisz 5 testów do tych endp
         \_____________________|_____________________/
                               |
                               v
-                       Manager merguje
-                       to, co się sprawdza
+                  Manager integrates
+                  whatever passes review
 ```
 
-## Wymagania
+## Requirements
 
-- `bash` (4+ wystarczy, 5+ rekomendowane)
+- `bash` (4+ works, 5+ recommended)
 - `git`
 - `tmux` (`brew install tmux` / `apt install tmux`)
-- [gemini CLI](https://github.com/google-gemini/gemini-cli) zalogowany — testowane na 0.42.0. Wystarczy `gemini` w PATH i jednorazowy `gemini auth login`.
+- [gemini CLI](https://github.com/google-gemini/gemini-cli), authenticated — tested on 0.42.0. Just need `gemini` on PATH and a one-time `gemini auth login`.
 
-Nie używasz gemini? Podmień ciało jednej funkcji `run_ai()` na górze `worker-agent.sh` i to wszystko — działa z dowolnym CLI, które przyjmuje prompt i pisze do plików (claude-code, ollama, llm itp.).
+Not using gemini? Swap the body of the `run_ai()` function at the top of `worker-agent.sh` — that's it — works with any CLI that takes a prompt and writes files (claude-code, ollama, llm, etc.).
 
 ## Quickstart
 
@@ -60,115 +60,124 @@ Nie używasz gemini? Podmień ciało jednej funkcji `run_ai()` na górze `worker
 git clone https://github.com/Brbn-jpg/claude-conductor.git
 cd claude-conductor
 
-# 1. Stwórz zadanie z szablonu
-cp .tasks/_template.md .tasks/todo/task-001-moj.md
-$EDITOR .tasks/todo/task-001-moj.md   # wypełnij Cel / Kontekst / Pliki / DoD
+# 1. Create a task from the template
+cp .tasks/_template.md .tasks/todo/task-001-my-task.md
+$EDITOR .tasks/todo/task-001-my-task.md   # fill in Goal / Context / Files / DoD
 
-# 2. Odpal grid (domyślnie 2 workery)
+# 2. Launch the grid (default 2 workers)
 ./launch-grid.sh --workers 2
-# Ctrl-b d — odłącz od sesji   |   tmux attach -t ai-grid — wróć
+# Ctrl-b d — detach from session   |   tmux attach -t ai-grid — reattach
 
-# 3. Po zakończeniu zobacz co zrobili
-./status.sh                             # przegląd jednym wywołaniem
-git log -p ai-grid/task-001-moj         # podgląd diffu konkretnej gałęzi
+# 3. See what the workers did
+./status.sh                             # one-shot overview
+git log -p ai-grid/task-001-my-task     # diff for a specific branch
 
-# 4. Zintegruj (cherry-pick, linear history, sprząta worktree+branch)
-./integrate.sh --all                    # wszystkie ai-grid/* na bieżącą gałąź
-# albo wybrany task:
-./integrate.sh ai-grid/task-001-moj
+# 4. Integrate (cherry-pick, linear history, cleans worktree + branch)
+./integrate.sh --all                    # everything onto current branch
+git branch -D ai-grid/task-001-my-task  # optional, integrate.sh already removes it
 ```
 
-Tryb headless (CI / inny skrypt):
+Headless mode (CI / another script):
 
 ```bash
 ./launch-grid.sh --workers 3 --no-attach
-# sesja działa w tle; podgląd: tmux attach -t ai-grid
+# session runs in the background; inspect: tmux attach -t ai-grid
 ```
 
-## Jak to działa
+## How it works
 
-Trzy mechanizmy, które robią różnicę:
+Three mechanisms that make this work:
 
-1. **Atomowy lock przez `mkdir`** — workery widzące ten sam plik w kolejce nie zaclaimują go równocześnie. `mkdir foo.lock` jest atomowy na POSIX: tylko jeden proces dostaje kod 0, reszta `EEXIST`. Bez `flock`, bez SQL'a, bez Redisa.
+1. **Atomic locks via `mkdir`** — workers seeing the same file in the queue never claim it concurrently. `mkdir foo.lock` is atomic on POSIX: only one process gets exit 0, the rest get `EEXIST`. No `flock`, no SQL, no Redis.
 
-2. **Worktree per worker** — `git worktree add --detach .worktrees/<worker-id> $BASE_BRANCH`. Gemini w `--yolo` zapisuje pliki tam, nie w głównym repo. Brak wspólnego working tree = brak race przy `git add -A`.
+2. **Worktree per worker** — `git worktree add --detach .worktrees/<worker-id> $BASE_BRANCH`. Gemini in `--yolo` writes files there, not in the main repo. No shared working tree = no race on `git add -A`.
 
-3. **Branch per task** — przed każdym taskiem worker robi `git checkout -B ai-grid/<task-name> $BASE_SHA` w swoim worktree. Commit ląduje na izolowanej gałęzi. Po sesji mergujesz to, co OK, odrzucasz resztę.
+3. **Branch per task** — before each task the worker runs `git checkout -B ai-grid/<task-name> $BASE_SHA` inside its worktree. The commit lands on an isolated branch. After the session, merge what's good, drop the rest.
 
-**Crash-safe**: `trap EXIT` w workerze przywraca task z `in_progress/` do `todo/` i zwalnia lock przy SIGINT/SIGTERM/exception. `launch-grid.sh` przy starcie sprząta locki starsze niż 60 minut (na wypadek workera, który padł bez czasu na trap).
+**Crash-safe**: `trap EXIT` in the worker returns the task from `in_progress/` to `todo/` and releases the lock on SIGINT/SIGTERM/exception. `launch-grid.sh` cleans locks older than 60 minutes at startup (for workers that died before their trap could fire).
 
-## Struktura projektu
+## Project layout
 
-| Ścieżka | Rola |
+| Path | Role |
 |---|---|
-| `launch-grid.sh` | Orkiestrator: cleanup locków, sesja tmux, `N` paneli z workerami |
-| `worker-agent.sh` | Pętla pojedynczego workera: claim → AI → testy → commit → done |
-| `status.sh` | Agregowany raport stanu gridu w jednym wywołaniu (kolejka, gałęzie, locki, summaries) |
-| `integrate.sh` | Cherry-pick `ai-grid/*` na bieżącą gałąź (1 task = 1 commit, bez merge-commitów) + cleanup worktree/branch |
-| `.tasks/_template.md` | Szablon zadania kodowego (Cel / Kontekst / Pliki / DoD) |
-| `.tasks/_template-research.md` | Szablon research-task (gemini bada codebase, pisze raport zamiast zmieniać kod) |
-| `.tasks/todo/` | Kolejka oczekujących zadań |
-| `.tasks/in_progress/` | Aktywnie przetwarzane |
-| `.tasks/done/` | Ukończone (audyt) |
-| `.agent-locks/` | Atomowe locki `mkdir` per task |
-| `.agent-logs/` | Logi: `<worker>.log`, `<worker>_<task>.log` (pełny AI output), `<worker>_<task>.summary.md` (zwięzły raport per task — manager czyta to zamiast pełnego logu) |
-| `.worktrees/<worker-id>/` | Izolowany working tree workera (runtime, gitignored) |
-| `CLAUDE.md` | Instrukcje dla Claude Code (gdy używasz go jako managera) |
+| `launch-grid.sh` | Orchestrator: lock cleanup, tmux session, `N` worker panes |
+| `worker-agent.sh` | Single worker loop: claim -> AI -> tests -> commit -> done |
+| `status.sh` | Aggregated grid status in one call (queue, branches, locks, summaries) |
+| `integrate.sh` | Cherry-pick `ai-grid/*` onto current branch (1 task = 1 commit, no merge commits) + cleanup worktree/branch |
+| `.tasks/_template.md` | Code task template (Goal / Context / Files / DoD) |
+| `.tasks/_template-research.md` | Research task template (gemini explores the codebase, writes a report instead of changing code) |
+| `.tasks/todo/` | Pending tasks |
+| `.tasks/in_progress/` | Tasks being processed |
+| `.tasks/done/` | Completed tasks (audit) |
+| `.agent-locks/` | Atomic `mkdir` locks per task |
+| `.agent-logs/` | Logs: `<worker>.log`, `<worker>_<task>.log` (full AI output), `<worker>_<task>.summary.md` (concise per-task report — manager reads this instead of the full log) |
+| `.worktrees/<worker-id>/` | Isolated worktree per worker (runtime, gitignored) |
+| `CLAUDE.md` | Instructions for Claude Code (when using it as the manager) |
 
-## Konfiguracja
+## Configuration
 
-Wszystkie pokrętła są w pierwszych ~30 liniach `worker-agent.sh`:
+All knobs are in the first ~30 lines of `worker-agent.sh`:
 
-| Zmienna | Domyślnie | Opis |
+| Variable | Default | Description |
 |---|---|---|
-| `TEST_CMD` | `""` | Komenda testu po AI. Pusta = pomiń. `"npm test"`, `"pytest -q"`, `"go test ./..."`. Failure → reset worktree, task wraca do `todo/`. |
-| `POLL_INTERVAL` | `5` | Sekund między próbami pobrania zadania gdy widoczne są same zalockowane. |
-| `BASE_BRANCH` | bieżąca gałąź | Branch, od którego każdy task tworzy swoje `ai-grid/<task>`. |
-| `run_ai()` | `gemini --yolo --skip-trust --prompt …` | **Funkcja-adapter.** Podmień ciało aby użyć innego CLI. |
+| `TEST_CMD` | `""` | Test command run after AI. Empty = skip. Examples: `"npm test"`, `"pytest -q"`, `"go test ./..."`. On failure: reset worktree, task returns to `todo/`. |
+| `POLL_INTERVAL` | `5` | Seconds between attempts to claim a task when all visible ones are locked. |
+| `BASE_BRANCH` | current branch | Branch each task starts from for `ai-grid/<task>`. |
+| `run_ai()` | `gemini --yolo --skip-trust --prompt …` | **Adapter function.** Swap the body to use a different CLI. |
 
 `launch-grid.sh`:
-- `--workers N` / `-w N` — liczba paneli (domyślnie 2)
-- `--no-attach` — twórz sesję i wyjdź bez `tmux attach` (przydatne w CI)
+- `--workers N` / `-w N` — number of panes (default 2)
+- `--no-attach` — create session and exit without `tmux attach` (useful in CI)
 
-## Sesja tmux — ściąga
+## Parallelism safety
+
+| Mechanism | What it solves |
+|---|---|
+| **Atomic `mkdir` lock** | Two workers seeing the same file in `todo/` — only one wins `mkdir .agent-locks/<task>.lock` (POSIX guarantees atomicity). |
+| **Worktree per worker** | No shared working tree -> no race when gemini writes files and `git add -A` runs. Each worker = its own `.worktrees/<worker-id>`. |
+| **Branch per task** | Each commit lands on `ai-grid/<task-name>`, so `git add -A` in one worktree doesn't pull in another worker's changes. |
+| **Trap rollback** | SIGINT/SIGTERM/crash -> task returns from `in_progress/` to `todo/`, lock released, worker exits cleanly. |
+| **Stale lock cleanup** | `launch-grid.sh` removes locks older than 60 min at startup (for workers that crashed without firing their trap). |
+
+## tmux cheatsheet
 
 ```bash
-tmux attach -t ai-grid             # podłącz do działającej sesji
-# wewnątrz tmux:
-#   Ctrl-b d        — detach (sesja działa dalej)
-#   Ctrl-b <arrow>  — przeskocz między panelami
-#   Ctrl-b z        — zoom na pojedynczy panel
-tmux list-panes -t ai-grid         # zobacz panele z zewnątrz
-tmux capture-pane -t ai-grid:grid.0 -p   # zrzut zawartości panelu 0
-tmux kill-session -t ai-grid       # zabij całą sesję
+tmux attach -t ai-grid             # attach to a running session
+# inside tmux:
+#   Ctrl-b d        — detach (session keeps running)
+#   Ctrl-b <arrow>  — jump between panes
+#   Ctrl-b z        — zoom into a single pane
+tmux list-panes -t ai-grid         # inspect panes from outside
+tmux capture-pane -t ai-grid:grid.0 -p   # dump pane 0 contents
+tmux kill-session -t ai-grid       # kill the whole session
 ```
 
-## Sprzątanie po sesji
+## Cleanup after a session
 
-Domyślnie `./integrate.sh` robi to za Ciebie po każdym sukcesie (worktree + branch). Ręcznie tylko gdy chcesz odrzucić wyniki bez integracji:
+By default, `./integrate.sh` does this for you after each success (worktree + branch). Manually only when you want to discard results without integrating:
 
 ```bash
-git worktree list                              # zobacz aktywne worktree
+git worktree list                              # see active worktrees
 git worktree remove --force .worktrees/worker-1
 git branch -D ai-grid/task-XXX
 
-# Reset całej sesji (wszystkie worktree workerów + gałęzie ai-grid):
+# Reset a whole session (all worker worktrees + ai-grid branches):
 git worktree list | awk '/.worktrees\// {print $1}' | xargs -n1 git worktree remove --force
 git branch | awk '/ai-grid\//{print $1}' | xargs -r git branch -D
 ```
 
-## Znane ograniczenia
+## Known limitations
 
-- **Workery wyłączają się po opróżnieniu `todo/`.** Jeśli chcesz „demon w tle" reagujący na nowe taski, zamień `break` w pętli głównej `worker-agent.sh` na `sleep "$POLL_INTERVAL"; continue`.
-- **Brak licznika prób** — task po crashu AI wraca do kolejki bez limitu. W praktyce gemini jest stabilny, ale dla produkcji dodaj cap (`.tasks/in_progress` można rozbudować o licznik).
-- **Stale-lock cleanup** ma sztywne 60 min. Długie zadania? Podnieś `STALE_LOCK_MINUTES` w `launch-grid.sh`.
-- **`--yolo` = pełne zaufanie AI.** Framework izoluje workery przez worktree, ale prompt sam się nie pisze: jakość zadania (DoD) determinuje jakość output'u. Trzymaj się szablonu.
-- **Domyślnie liniowa kolejka** — workery biorą pliki leksykograficznie z `todo/`. Jeśli potrzebujesz priorytetów, prefiksuj nazwy (`task-001-`, `task-002-`).
+- **Workers exit when `todo/` is empty.** If you want a "daemon" that stays up until `Ctrl-c`, replace `break` in the main loop of `worker-agent.sh` with `sleep "$POLL_INTERVAL"; continue`.
+- **No retry counter** — task crashes after AI failure return to the queue with no limit. In practice gemini is stable, but for production add a cap.
+- **Stale-lock cleanup** is hardcoded to 60 min. For long-running tasks, bump `STALE_LOCK_MINUTES` in `launch-grid.sh`.
+- **`--yolo` = full trust in the AI.** The framework isolates workers via worktrees, but the prompt won't write itself: task quality (DoD) determines output quality. Stick to the template.
+- **Lexicographic queue order by default** — workers pick files lexicographically from `todo/`. If you need priorities, prefix names (`task-001-`, `task-002-`).
 
-## Bonus: praca z Claude Code
+## Bonus: working with Claude Code
 
-W repozytorium jest [`CLAUDE.md`](CLAUDE.md) z instrukcjami dla [Claude Code](https://claude.com/claude-code) w trybie "Manager + Workers": Claude dzieli duży problem na atomowe taski w `.tasks/todo/`, Ty mówisz "uruchom grid", Claude prosi o weryfikację commitów `[AI-Grid]` i o zgodę na push. Nie używasz Claude Code? Wszystko działa identycznie ręcznie — Ty piszesz taski, Ty mergujesz.
+The repo includes [`CLAUDE.md`](CLAUDE.md) with instructions for [Claude Code](https://claude.com/claude-code) in "Manager + Workers" mode: Claude breaks a big problem into atomic tasks in `.tasks/todo/`, you say "launch the grid", Claude asks for review of `[AI-Grid]` commits and permission to push. Not using Claude Code? Everything works identically by hand — you write tasks, you merge.
 
-## Licencja
+## License
 
 [MIT](LICENSE) © 2026 Jakub Kuźnicki

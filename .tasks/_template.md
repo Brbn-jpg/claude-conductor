@@ -1,27 +1,28 @@
-# <Krótki opis feature'u — TO staje się commit message>
+# <Short feature description — THIS becomes the commit message>
 
-> Zapisz plik jako `.tasks/todo/task-<NNN>-<krotki-slug>.md`.
-> Pierwszy nagłówek H1 powyżej zostanie użyty jako **subject commita** workera
-> (np. "Add electrician job page", "Refactor auth middleware"). Nazwa pliku
-> trafia do trailera `AI-Grid: <task-name>` w body commita (audyt). Pisz H1
-> jak normalny commit message — krótko, w trybie rozkazującym.
+> Save this file as `.tasks/todo/task-<NNN>-<short-slug>.md`.
+> The first H1 above is used as the worker's **commit subject**
+> (e.g. "Add electrician job page", "Refactor auth middleware"). The file
+> name lands in the `AI-Grid: <task-name>` trailer in the commit body
+> (for audit). Write the H1 like a normal commit message — short,
+> imperative mood.
 
-## Cel
-<!-- 1–2 zdania: co dokładnie ma zostać osiągnięte po wykonaniu zadania. -->
+## Goal
+<!-- 1–2 sentences: what exactly should be achieved when this task is done. -->
 
-## Kontekst
-<!-- Dlaczego to robimy? Linki do issue / dokumentów / wcześniejszych decyzji. -->
-<!-- Stan obecny vs. stan oczekiwany. -->
+## Context
+<!-- Why are we doing this? Links to issues / docs / earlier decisions. -->
+<!-- Current state vs. expected state. -->
 
-## Pliki do modyfikacji
-<!-- Konkretne ścieżki (jeden plik na linię). Jeśli plik trzeba utworzyć, dopisz "(nowy)". -->
+## Files to modify
+<!-- Concrete paths (one per line). If a file needs to be created, append "(new)". -->
 - `path/to/file.ext`
-- `path/to/other.ext` (nowy)
+- `path/to/other.ext` (new)
 
-## Ograniczenia (Definition of Done)
-<!-- Twarde reguły: czego NIE wolno ruszać, jakich API/konwencji się trzymać, -->
-<!-- jak wygląda warunek ukończenia (np. test który musi przejść). -->
-- Nie modyfikuj plików spoza listy powyżej.
-- Zachowaj istniejący styl kodu i konwencję nazewnictwa.
-- Po zmianach `TEST_CMD` workera musi przejść bez błędów.
-- Nie dodawaj zewnętrznych zależności bez wyraźnej zgody.
+## Constraints (Definition of Done)
+<!-- Hard rules: what NOT to touch, which APIs/conventions to follow, -->
+<!-- what the completion criterion looks like (e.g. a test that must pass). -->
+- Do not modify files outside the list above.
+- Preserve existing code style and naming conventions.
+- After changes, the worker's `TEST_CMD` must pass without errors.
+- Do not add external dependencies without explicit approval.

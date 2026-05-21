@@ -1,37 +1,37 @@
-# Research: <krótki opis tematu — staje się subject commita>
+# Research: <short topic description — becomes the commit subject>
 
-> Szablon do **research-tasków** — wynikiem ma być zwięzły raport, nie zmiany w kodzie.
-> Zapisz plik jako `.tasks/todo/research-<NNN>-<slug>.md`.
-> Worker uruchomi gemini, który **eksploruje codebase**, pisze findings do
-> `.tasks/research/<slug>.md` (utwórz katalog jeśli brak) i KONIEC — żadnych
-> innych zmian w repo. Manager (Ty / Claude) czyta krótki raport zamiast
-> czytać samodzielnie surowy kod.
+> Template for **research tasks** — output is a concise report, not code changes.
+> Save this file as `.tasks/todo/research-<NNN>-<slug>.md`.
+> The worker will run gemini which **explores the codebase**, writes findings to
+> `.tasks/research/<slug>.md` (create the directory if missing) and that's it —
+> no other repo changes. The manager (you / Claude) reads a short report
+> instead of reading raw code themselves.
 
-## Cel
-<!-- Czego chcesz się dowiedzieć? Np. "jak działa moduł X", "gdzie są wszystkie
-     miejsca używające funkcji Y", "porównaj 3 podejścia do Z w kodzie". -->
+## Goal
+<!-- What do you want to learn? E.g. "how module X works", "all places that
+     use function Y", "compare 3 approaches to Z in the codebase". -->
 
-## Zakres eksploracji
-<!-- Które ścieżki / pliki / wzorce ma worker przeszukać. Im konkretniej, tym lepiej. -->
+## Exploration scope
+<!-- Which paths / files / patterns the worker should search. The more concrete, the better. -->
 - `src/...`
-- pliki pasujące do wzorca: ...
-- pomiń: ...
+- files matching pattern: ...
+- skip: ...
 
-## Pytania, na które ma odpowiedzieć
-<!-- Lista pytań. Każde dostaje odpowiedź w raporcie. -->
+## Questions to answer
+<!-- List of questions. Each gets answered in the report. -->
 1. ...
 2. ...
 3. ...
 
-## Format wyjścia (DoD)
-- **Plik wynikowy:** `.tasks/research/<slug>.md` (utwórz `.tasks/research/` jeśli nie istnieje)
-- **Limit:** maks 300 słów
-- **Struktura raportu:**
-  - `## TL;DR` — 3 linie, najważniejsze wnioski
-  - `## Findings` — bulletpointy, każde z odnośnikiem do pliku (`path/to/file.ext:LINE`)
-  - `## Recommendations` *(opcjonalne)* — propozycje działań / kolejnych tasków
+## Output format (DoD)
+- **Output file:** `.tasks/research/<slug>.md` (create `.tasks/research/` if missing)
+- **Limit:** max 300 words
+- **Report structure:**
+  - `## TL;DR` — 3 lines, key takeaways
+  - `## Findings` — bullet points, each with a file reference (`path/to/file.ext:LINE`)
+  - `## Recommendations` *(optional)* — proposed actions / follow-up tasks
 
-## Ograniczenia
-- **NIE modyfikuj** żadnych plików spoza `.tasks/research/`.
-- **NIE generuj** plików testowych ani kodu — to jest tylko raport.
-- Cytaty z kodu max 5 linii każdy; reszta opisem.
+## Constraints
+- **DO NOT modify** any files outside `.tasks/research/`.
+- **DO NOT generate** test files or code — this is a report only.
+- Code quotes max 5 lines each; rest as description.
