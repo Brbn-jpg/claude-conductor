@@ -146,6 +146,34 @@ get_base_sha() {
     ( cd "$REPO_ROOT" && git rev-parse "$BASE_BRANCH" 2>/dev/null )
 }
 
+# Wyciąga subject commita z pliku zadania.
+# Preferuje pierwszy H1 (linia "# Foo"). Jeśli brak lub placeholder
+# z szablonu — fallback do slugu z nazwy pliku.
+extract_commit_subject() {
+    local task_file="$1"
+    local task_name="$2"
+
+    local h1=""
+    if [[ -r "$task_file" ]]; then
+        h1=$(grep -m1 '^# ' "$task_file" 2>/dev/null | sed 's/^# *//' | sed 's/[[:space:]]*$//')
+    fi
+
+    # Odrzuć placeholdery z szablonów
+    case "$h1" in
+        ""|"Tytuł zadania"|"Research: <temat>")
+            # Fallback: slug z nazwy pliku  (task-101-job-electrician.md -> job-electrician)
+            local slug="${task_name%.md}"
+            slug="${slug#task-}"
+            slug="${slug#research-}"
+            slug=$(echo "$slug" | sed 's/^[0-9][0-9]*-//')
+            echo "$slug"
+            ;;
+        *)
+            echo "$h1"
+            ;;
+    esac
+}
+
 # Zapisuje zwięzłe summary per task do .agent-logs/<worker>_<task>.summary.md.
 # Manager (Claude Code) czyta TO zamiast pełnego logu — oszczędność tokenów.
 write_task_summary() {
@@ -314,6 +342,8 @@ EOF
 
     # 6. Commit w worktree, na gałęzi taska. Brak mutexa — różne gałęzie,
     #    różne working trees, git radzi sobie z równoległymi commitami.
+    local commit_subject
+    commit_subject=$(extract_commit_subject "$task_path" "$task_name")
     (
         cd "$WORK_DIR" || exit 3
         git add -A
@@ -321,7 +351,7 @@ EOF
             echo "===== GIT: brak zmian do zacommitowania =====" >>"$task_log"
             exit 10
         fi
-        git commit -m "[AI-Grid] Zrobiono $task_name" >>"$task_log" 2>&1
+        git commit -m "$commit_subject" -m "AI-Grid: ${task_name%.md}" >>"$task_log" 2>&1
     )
     local commit_rc=$?
     case "$commit_rc" in

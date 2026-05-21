@@ -1,8 +1,10 @@
-# Tytuł zadania
+# <Krótki opis feature'u — TO staje się commit message>
 
 > Zapisz plik jako `.tasks/todo/task-<NNN>-<krotki-slug>.md`.
-> Worker grid odczyta go automatycznie. Nazwa pliku staje się TASK_NAME w logach
-> i commitach (`[AI-Grid] Zrobiono <TASK_NAME>`), więc trzymaj się kebab-case.
+> Pierwszy nagłówek H1 powyżej zostanie użyty jako **subject commita** workera
+> (np. "Add electrician job page", "Refactor auth middleware"). Nazwa pliku
+> trafia do trailera `AI-Grid: <task-name>` w body commita (audyt). Pisz H1
+> jak normalny commit message — krótko, w trybie rozkazującym.
 
 ## Cel
 <!-- 1–2 zdania: co dokładnie ma zostać osiągnięte po wykonaniu zadania. -->

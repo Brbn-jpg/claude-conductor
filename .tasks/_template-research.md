@@ -1,4 +1,4 @@
-# Research: <temat>
+# Research: <krótki opis tematu — staje się subject commita>
 
 > Szablon do **research-tasków** — wynikiem ma być zwięzły raport, nie zmiany w kodzie.
 > Zapisz plik jako `.tasks/todo/research-<NNN>-<slug>.md`.

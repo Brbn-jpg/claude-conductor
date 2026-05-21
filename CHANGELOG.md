@@ -2,6 +2,29 @@
 
 Format: [Keep a Changelog](https://keepachangelog.com/), wersjonowanie [SemVer](https://semver.org/).
 
+## [0.4.0] — 2026-05-21
+
+Feature-named commits. Worker bierze H1 z pliku zadania jako subject commita zamiast generycznego `[AI-Grid] Zrobiono task-XXX.md`. Audit-tag przeniesiony do trailera `AI-Grid: <task-name>` w body commita — `git log --oneline` jest czysty, `git log --grep="AI-Grid:"` nadal znajduje wszystkie AI commity.
+
+### Changed
+
+- **`worker-agent.sh`** — nowa funkcja `extract_commit_subject` parsuje pierwszy `# H1` z pliku zadania. Placeholdery z szablonów (`Tytuł zadania`, `Research: <temat>`) są ignorowane i podmieniane na slug z nazwy pliku. Commit message: `<H1>\n\nAI-Grid: <task-name>`.
+- **`.tasks/_template.md`** — wskazówka nad H1: "TO staje się commit message" + przykłady (`Add electrician job page`, `Refactor auth middleware`).
+- **`.tasks/_template-research.md`** — analogicznie, H1 = subject.
+
+### Migration
+
+Stare commity z `[AI-Grid] Zrobiono task-XXX.md` zostają jak są (historia niezmieniona). Nowe taski automatycznie używają nowego formatu — wystarczy napisać czytelny H1 w pliku zadania (Twój już dawno powinien to robić skoro grupujesz 14 zadań).
+
+### Before / After
+
+```
+PRZED:                                       PO:
+[AI-Grid] Zrobiono task-101-job-electrician  Add electrician job page
+[AI-Grid] Zrobiono task-102-job-economist    Add economist job page
+[AI-Grid] Zrobiono task-110-org-drugs        Hide drugs section for non-orgs
+```
+
 ## [0.3.0] — 2026-05-20
 
 Linear-history integration. Przy 14 workerach domyślne `git merge --no-ff` produkowało spaghetti (28 commitów + 14 równoległych railsów na 14 tasków). Nowy `integrate.sh` używa cherry-pick: każdy task → jeden commit na main, bez merge-commitów, z automatycznym cleanupem worktree i gałęzi.
@@ -86,6 +109,7 @@ Inspirowane wątkiem na Reddicie o lekkich multi-agent setupach. Zbudowane na za
 
 ---
 
+[0.4.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Brbn-jpg/claude-conductor/releases/tag/v0.1.0
